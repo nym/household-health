@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>Household builder</title>
+        <style>
+            .debug {
+                font-family: monospace;
+                border: 1px solid black;
+                padding: 10px;
+                display: none;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Household builder</h1>
+        <div class="builder">
+            <ol class="household"></ol>
+            <form>
+                <div>
+                    <label>Age
+                        <input type="text" name="age">
+                    </label>
+                </div>
+                <div>
+                    <label>Relationship
+                        <select name="rel">
+                            <option value="">---</option>
+                            <option value="self">Self</option>
+                            <option value="spouse">Spouse</option>
+                            <option value="child">Child</option>
+                            <option value="parent">Parent</option>
+                            <option value="grandparent">Grandparent</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </label>
+                </div>
+                <div>
+                    <label>Smoker?
+                        <input type="checkbox" name="smoker">
+                    </label>
+                </div>
+                <div>
+                    <button class="add">add</button>
+                </div>
+                <div>
+                    <button type="submit">submit</button>
+                </div>
+            </form>
+        </div>
+        <pre class="debug"></pre>
+        <script>
+            /***************************************************************************
+             * ActionManager and Actions
+             * -------------------------
+             * This is based on the Flux model, which uses actions and reducers to
+             * modify the state of a user interface
+             ***************************************************************************/
+
+            /* 
+             * ActionManager 
+             * This is the heart of the state control, and works in a similar way to an EventManager.
+             * Every time an Action is created, the ActionManager is called, and a corresponding reducer
+             * is fired to modify the state. This way, the state is never modified by anything other than
+             * a reducer. A history of each action, as well as the state is kept.
+             */
+            var ActionManager = (function() {
+                var actions = [];
+                var state = {};
+                var stateHistory = [{}];
+                var reducers = {};
+                var callbacks = [];
+
+                return {
+                    add: function(action) {
+                        console.log("ACTION FIRED: " + action.type);
+                        actions.push(action);
+                        var oldState = stateHistory[stateHistory.length-1];
+                        var oldStateCopy = (JSON.parse(JSON.stringify(oldState)))
+                        var newState = reducers[action.type](oldStateCopy, action.payload);
+                        // keep a history of the changes to the state
+                        // this could be used for undo later on if we wanted
+                        stateHistory.push(newState);
+                        var stateHasChanged = true; // until a refactor, this is stubbed
+                        if (stateHasChanged) {
+                            // if the state changes, call every callback with the new state
+                            for (var i=0; i<callbacks.length; i++) {
+                                callbacks[i](
+                                    stateHistory[stateHistory.length-2], 
+                                    stateHistory[stateHistory.length-1]
+                                );
+                            }
+                            state = stateHistory[stateHistory.length-1];
+                        }
+                        console.log(stateHistory);
+                    },
+                    addReducer: function(type, reducer) {
+                        reducers[type] = reducer;
+                    },
+                    getActions: function() {
+                        return actions;
+                    },
+                    getState: function() {
+                        console.log(state);
+                    },
+                    subscribe: function(callback) {
+                        callbacks.push(callback);
+                    }
+                }
+            })();
+
+            /* 
+             * Action 
+             * Instead of directly modifying the state, we use Actions, which have a type (action name) 
+             * and payload (data). This allows us to have a history of all the actions a user has taken. 
+             */
+            var Action = function (type, payload) {
+                var type = type ? type : null;
+                var payload = payload ? payload : null;
+                ActionManager.add({type: type, payload: payload});
+            };
+
+
+            /***************************************************************************
+             * Reducers
+             * --------
+             * For every action, you must have a corresponding reducer with the same name.
+             * These are examples of "pure functions", meaning given a known set of inputs
+             * the function will always return the same results, just like math.
+             ***************************************************************************/
+
+            ActionManager.addReducer(
+                "ADD-HOUSEHOLD-MEMBER",
+                function(oldState, householdMember) {
+                    var newState = oldState;
+                    newState.submitPending = false;
+                    newState.members = newState.members ? newState.members : [];
+                    if (householdMember.age > 0 && householdMember.relationship !== "") {
+                        newState.members.push(householdMember);
+                        newState.errors = [];
+                    } else {
+                        errors = [];
+                        if (!(householdMember.age > 0)) errors.push("Invalid Age");
+                        if (householdMember.relationship === "") errors.push("Please pick a relationship");
+                        newState.errors = errors;
+                    }
+                    return newState;
+            });
+
+            ActionManager.addReducer(
+                "REMOVE-HOUSEHOLD-MEMBER",
+                function(oldState, memberToDelete) {
+                    var newState = oldState;
+                    newState.submitPending = false;
+                    newState.members = newState.members ? newState.members : [];
+                    newState.members.splice( memberToDelete.index, 1 );
+                    return newState;
+            });
+
+            ActionManager.addReducer(
+                "SUBMIT-HOUSEHOLD",
+                function(oldState, householdMember) {
+                    var newState = oldState;
+                    newState.submitPending = true;
+                    return newState;
+            });
+
+            ActionManager.addReducer(
+                "SUBMIT-HOUSEHOLD-COMPLETE",
+                function(oldState, response) {
+                    var newState = oldState;
+                    newState.submitPending = false;
+                    return newState;
+            });
+
+
+            /***************************************************************************
+             * Components
+             * ----------
+             * A component either updates based on a state change or fires Actions
+             ***************************************************************************/
+
+            /* 
+             * HouseholdList (component)
+             * This component is the primary output of state.members, with remove buttons
+             * to allow dynamic removal of household members
+             */
+            var HouseholdList = function(dom) {
+                var render = function(newState) {
+                    var html = "";
+                    var m;
+                    for (var i=0; i<newState.members.length; i++) {
+                        m = newState.members[i];
+                        html += "<li><br/>Age: "+m.age+"<br/>Relationship: "+ m.relationship + "<br/>Smoker? " + (m.isSmoker ? "Yes" : "No") + "<br/><button class='remove' value='"+i+"'>Remove</button></li>";
+                    }
+                    dom.innerHTML = html;
+                };
+
+                var onStateDidChange = function(oldState, newState) {
+                    console.log(oldState, newState);
+                    if (String(oldState.members) !== String(newState.members)) {
+                        render(newState);
+                    }
+                };
+
+                var removeDeligateHandler = function(e) {
+                    if (e.srcElement && e.srcElement.className === "remove") {
+                        e.preventDefault();                        
+                        var index = e.srcElement.value
+                        var a = new Action(
+                            "REMOVE-HOUSEHOLD-MEMBER", 
+                            {
+                                index: index
+                            }
+                        );
+                    }
+                }
+                dom.addEventListener("click", removeDeligateHandler)
+                // attach component to ActionManager for state changes
+                ActionManager.subscribe(onStateDidChange);
+            };
+            HouseholdList(document.getElementsByClassName("household")[0]);
+
+            /* 
+             * HouseholdControl (component)
+             * This component binds to the form portion of the markup in order to allow users to add new 
+             * members, as well as simulate a form submission. The state informs what error messages to 
+             * show, and if we should reset the form or not.
+             */
+            var HouseholdControl = function(dom) {
+                var addButton = dom.getElementsByTagName('button')[0];
+                var submitButton = dom.getElementsByTagName('button')[1];
+                var submitButton = dom.getElementsByTagName('button')[1];
+                var errors;
+                var form = dom;
+
+                // create div for validation feedback
+                errors = document.createElement("ul");
+                errors.className = "errors";
+                form.insertBefore(errors, form.childNodes[0]);
+
+                var onStateDidChange = function(oldState, newState) {
+                    console.log(String(oldState.errors), String(newState.errors));
+                    if (String(oldState.errors) !== String(newState.errors)) {
+                        render(newState);
+                    } 
+                };
+
+                var render = function(newState) {
+                    var output = "";
+                    if (newState.hasOwnProperty("errors") && newState.errors.length) {
+                        for (var i=0; i<newState.errors.length; i++) {
+                            output += "<li>Error: " + newState.errors[i] + "</li>";
+                        }
+                    }
+                    errors.innerHTML = output;
+                    if (newState.errors.length === 0) {
+                        form.reset();
+                    }
+                };
+
+                var addHandler = function(e) {
+                    e.preventDefault();
+                    var a = new Action(
+                        "ADD-HOUSEHOLD-MEMBER", 
+                        {
+                            age: form['age'].value,
+                            relationship: form['rel'].value,
+                            isSmoker: form['smoker'].checked
+                        }
+                    );
+                }
+
+                var submitHandler = function(e) {
+                    e.preventDefault();
+                    var a = new Action(
+                        "SUBMIT-HOUSEHOLD", 
+                        {}
+                    );
+
+                    // Simulate a server submission
+                    setTimeout(function() {
+                        var a = new Action(
+                            "SUBMIT-HOUSEHOLD-COMPLETE", 
+                            {success: true}
+                        );
+                    }, 3000)
+                }
+
+                // attach click listeners to the two buttons
+                addButton.addEventListener("click", addHandler);
+                submitButton.addEventListener("click", submitHandler);
+
+                // attach component to ActionManager for state changes
+                ActionManager.subscribe(onStateDidChange);
+            };
+            HouseholdControl(document.getElementsByTagName("form")[0]);
+
+
+            /*
+             * HouseholdDebug (component)
+             * This shows the output of the submitted members, if a submit is pending (not complete)
+             */
+            var HouseholdDebug = function(dom) {
+                var onStateDidChange = function(oldState, newState) {
+                    render(newState);
+                };
+
+                var render = function(newState) {
+                    var output = JSON.stringify(newState.members);
+                    dom.innerHTML = "Submitting....\n\n" + output;
+                    dom.style.display = newState.submitPending ? "block" : "none";
+                };
+
+                // attach component to ActionManager for state changes
+                ActionManager.subscribe(onStateDidChange);
+            };
+            HouseholdDebug(document.getElementsByTagName("pre")[0]);
+
+            /* That's it! I hope you enjoyed reading through my code. */
+        </script>
+    </body>
+</html>
