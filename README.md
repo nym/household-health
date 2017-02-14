@@ -5,11 +5,11 @@ This is an example application that provides a way to capture information about 
 https://nym.github.io/household-health/
 
 ## Acceptance Criteria:
-[X] Validate data entry (age is required and > 0, relationship is required)
-[X] Add people to a growing household list
-[X] Remove a previously added person from the list
-[X] Display the household list in the HTML as it is modified
-[X] Serialize the household as JSON upon form submission as a fake trip to the server
+- Validate data entry (age is required and > 0, relationship is required)
+- Add people to a growing household list
+- Remove a previously added person from the list
+- Display the household list in the HTML as it is modified
+- Serialize the household as JSON upon form submission as a fake trip to the server
 
 ## Requirements: 
 - Do not modify HTML
