@@ -312,7 +312,7 @@
                 };
 
                 var render = function(newState) {
-                    var output = JSON.stringify(newState.members);
+                    var output = JSON.stringify(newState.members, null, '\t');
                     if (newState.submitPending) {
                         dom.innerHTML = "Submitting....\n\n" + output;
                         dom.style.display = "block";
