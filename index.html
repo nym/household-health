@@ -76,6 +76,7 @@
                         console.log("ACTION FIRED: " + action.type);
                         actions.push(action);
                         var oldState = stateHistory[stateHistory.length-1];
+                        // create a copy of the state
                         var oldStateCopy = (JSON.parse(JSON.stringify(oldState)))
                         var newState = reducers[action.type](oldStateCopy, action.payload);
                         // keep a history of the changes to the state
@@ -94,14 +95,11 @@
                         }
                         console.log(stateHistory);
                     },
-                    addReducer: function(type, reducer) {
+                    setReducer: function(type, reducer) {
                         reducers[type] = reducer;
                     },
                     getActions: function() {
                         return actions;
-                    },
-                    getState: function() {
-                        console.log(state);
                     },
                     subscribe: function(callback) {
                         callbacks.push(callback);
@@ -129,11 +127,10 @@
              * the function will always return the same results, just like math.
              ***************************************************************************/
 
-            ActionManager.addReducer(
+            ActionManager.setReducer(
                 "ADD-HOUSEHOLD-MEMBER",
                 function(oldState, householdMember) {
                     var newState = oldState;
-                    newState.submitPending = false;
                     newState.members = newState.members ? newState.members : [];
                     if (householdMember.age > 0 && householdMember.relationship !== "") {
                         newState.members.push(householdMember);
@@ -147,29 +144,30 @@
                     return newState;
             });
 
-            ActionManager.addReducer(
+            ActionManager.setReducer(
                 "REMOVE-HOUSEHOLD-MEMBER",
                 function(oldState, memberToDelete) {
                     var newState = oldState;
-                    newState.submitPending = false;
                     newState.members = newState.members ? newState.members : [];
                     newState.members.splice( memberToDelete.index, 1 );
                     return newState;
             });
 
-            ActionManager.addReducer(
+            ActionManager.setReducer(
                 "SUBMIT-HOUSEHOLD",
                 function(oldState, householdMember) {
                     var newState = oldState;
                     newState.submitPending = true;
+                    newState.submitSuccessful = null;
                     return newState;
             });
 
-            ActionManager.addReducer(
+            ActionManager.setReducer(
                 "SUBMIT-HOUSEHOLD-COMPLETE",
                 function(oldState, response) {
                     var newState = oldState;
                     newState.submitPending = false;
+                    newState.submitSuccessful = response.success;
                     return newState;
             });
 
@@ -188,10 +186,10 @@
             var HouseholdList = function(dom) {
                 var render = function(newState) {
                     var html = "";
-                    var m;
+                    var member;
                     for (var i=0; i<newState.members.length; i++) {
-                        m = newState.members[i];
-                        html += "<li><br/>Age: "+m.age+"<br/>Relationship: "+ m.relationship + "<br/>Smoker? " + (m.isSmoker ? "Yes" : "No") + "<br/><button class='remove' value='"+i+"'>Remove</button></li>";
+                        member = newState.members[i];
+                        html += "<li><br/>Age: "+member.age+"<br/>Relationship: "+ member.relationship + "<br/>Smoker? " + (member.isSmoker ? "Yes" : "No") + "<br/><button class='remove' value='"+i+"'>Remove</button></li>";
                     }
                     dom.innerHTML = html;
                 };
@@ -203,11 +201,11 @@
                     }
                 };
 
-                var removeDeligateHandler = function(e) {
+                var removeDelegateHandler = function(e) {
                     if (e.srcElement && e.srcElement.className === "remove") {
                         e.preventDefault();                        
                         var index = e.srcElement.value
-                        var a = new Action(
+                        var removeMemberAction = new Action(
                             "REMOVE-HOUSEHOLD-MEMBER", 
                             {
                                 index: index
@@ -215,7 +213,7 @@
                         );
                     }
                 }
-                dom.addEventListener("click", removeDeligateHandler)
+                dom.addEventListener("click", removeDelegateHandler)
                 // attach component to ActionManager for state changes
                 ActionManager.subscribe(onStateDidChange);
             };
@@ -241,7 +239,8 @@
 
                 var onStateDidChange = function(oldState, newState) {
                     console.log(String(oldState.errors), String(newState.errors));
-                    if (String(oldState.errors) !== String(newState.errors)) {
+                    if (String(oldState.errors) !== String(newState.errors) || 
+                        newState.errors.length === 0) {
                         render(newState);
                     } 
                 };
@@ -254,6 +253,7 @@
                         }
                     }
                     errors.innerHTML = output;
+                    // reset the form if no errors are present
                     if (newState.errors.length === 0) {
                         form.reset();
                     }
@@ -261,7 +261,7 @@
 
                 var addHandler = function(e) {
                     e.preventDefault();
-                    var a = new Action(
+                    var addHouseholdMemberAction = new Action(
                         "ADD-HOUSEHOLD-MEMBER", 
                         {
                             age: form['age'].value,
@@ -273,14 +273,14 @@
 
                 var submitHandler = function(e) {
                     e.preventDefault();
-                    var a = new Action(
+                    var submitFormAction = new Action(
                         "SUBMIT-HOUSEHOLD", 
                         {}
                     );
 
                     // Simulate a server submission
                     setTimeout(function() {
-                        var a = new Action(
+                        var submitFormCompleteAction = new Action(
                             "SUBMIT-HOUSEHOLD-COMPLETE", 
                             {success: true}
                         );
@@ -300,16 +300,28 @@
             /*
              * HouseholdDebug (component)
              * This shows the output of the submitted members, if a submit is pending (not complete)
+             * Note: this will show the current state
              */
             var HouseholdDebug = function(dom) {
                 var onStateDidChange = function(oldState, newState) {
-                    render(newState);
+                    
+                    if ((oldState.submitPending !== newState.submitPending) || 
+                        oldState.submitSuccessful !== newState.submitSuccessful ) {
+                        render(newState);
+                    }
                 };
 
                 var render = function(newState) {
                     var output = JSON.stringify(newState.members);
-                    dom.innerHTML = "Submitting....\n\n" + output;
-                    dom.style.display = newState.submitPending ? "block" : "none";
+                    if (newState.submitPending) {
+                        dom.innerHTML = "Submitting....\n\n" + output;
+                        dom.style.display = "block";
+                        dom.style.backgroundColor = "inherit";
+                    } 
+                    if (newState.submitPending === false && newState.submitSuccessful === true) {
+                        dom.innerHTML = "Submitted Successfully!\n\n" + output;
+                        dom.style.backgroundColor = "lightgreen";
+                    }
                 };
 
                 // attach component to ActionManager for state changes
