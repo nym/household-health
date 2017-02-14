@@ -1,6 +1,8 @@
 # Household Health
-
 This is an example application that provides a way to capture information about a household applying for health insurance coverage. 
+
+## Try it out!
+https://nym.github.io/household-health/
 
 ## Acceptance Criteria:
 [X] Validate data entry (age is required and > 0, relationship is required)
